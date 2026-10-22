@@ -583,12 +583,10 @@ def main() -> None:
 
     uploaded_file = st.file_uploader("PDF document", type=["pdf"])
 
-    # The chat box is pinned to the bottom of the page wherever it is called.
-    # Disabled until a PDF is uploaded — no error shown, input just stays inactive.
+    # The chat box is always active so the user can type freely.
     typed = st.chat_input(
         "Ask a question about this document",
         max_chars=MAX_QUESTION_CHARS,
-        disabled=uploaded_file is None,
     )
     question = typed or st.session_state.pop("pending_question", None)
 
@@ -598,6 +596,18 @@ def main() -> None:
             "<p>Upload a document above. It is indexed once, then you can ask as many questions as you like.</p></div>",
             unsafe_allow_html=True,
         )
+        # If user typed something without uploading a PDF, show it as a chat exchange
+        if question and question.strip():
+            with st.chat_message("user"):
+                st.markdown(question.strip())
+            with st.chat_message("assistant"):
+                st.markdown(
+                    '<div class="notfound">'
+                    '<b>📄 Please upload a PDF first</b>'
+                    '<span>Upload a PDF document above, then ask your question.</span>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
         return
 
     # ---- Indexing (once per unique file; follow-up questions reuse it) -------
