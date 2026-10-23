@@ -8,10 +8,11 @@
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![Groq](https://img.shields.io/badge/LLM-Groq_Llama_3.3-F55036)
-![Function Calling](https://img.shields.io/badge/Function-Calling-412991)
-![Tests](https://img.shields.io/badge/Tests-12_passing-2EA44F?logo=pytest&logoColor=white)
+![OpenAI](https://img.shields.io/badge/LLM-OpenAI_supported-412991?logo=openai&logoColor=white)
+![Function Calling](https://img.shields.io/badge/Function-Calling-0EA5E9)
+![Tests](https://img.shields.io/badge/Tests-14_passing-2EA44F?logo=pytest&logoColor=white)
 
-[Quick Start](#-installation) · [Architecture](#-architecture) · [How Function Calling Works](#-how-function-calling-works) · [Edge Cases](#-edge-case-handling) · [Why Groq](#-why-groq-and-not-openai) · [FAQ](#-interview-cheat-sheet)
+[Quick Start](#-installation) · [Architecture](#-architecture) · [How Function Calling Works](#-how-function-calling-works) · [Edge Cases](#-edge-case-handling) · [Problem Solved](#-problem-solved-openai-quota-error) · [FAQ](#-interview-cheat-sheet)
 
 </div>
 
@@ -28,7 +29,7 @@
 7. [Available Tools](#-available-tools)
 8. [Hallucination Prevention](#-hallucination-prevention)
 9. [Edge Case Handling](#-edge-case-handling)
-10. [Why Groq and Not OpenAI](#-why-groq-and-not-openai)
+10. [Problem Solved: OpenAI Quota Error](#-problem-solved-openai-quota-error)
 11. [Environment Variables](#-environment-variables)
 12. [Installation](#-installation)
 13. [How to Run](#-how-to-run)
@@ -48,6 +49,7 @@
 | 🐍 **Real execution** | Python runs the tool. The model never executes code |
 | 🛡️ **Honest answers** | Tool errors are passed back to the LLM and explained, never invented |
 | ♻️ **Resilient** | Timeouts, rate limits, bad keys and bad input produce friendly messages, no crashes |
+| 🔀 **Two LLM providers** | Switch between **OpenAI** and **Groq (free)** with one line in `.env` |
 | 🎨 **Two interfaces** | Streamlit chat UI and a FastAPI endpoint with Swagger docs |
 
 ## 🎯 Objective
@@ -65,13 +67,13 @@ Create a chatbot that can **check the weather or calculate stock prices by routi
 | Language | **Python 3.10+** | Application code |
 | UI | **Streamlit** | Chat interface with tool badges and stats |
 | API | **FastAPI** + **Pydantic** | `POST /chat` endpoint, Swagger docs |
-| LLM | **Groq** `llama-3.3-70b-versatile` | Intent detection, tool selection, final answer |
-| Function calling | **Chat tool-calling format** (`tools`, `tool_calls`, `role: tool`) | Lets the model request a Python function |
+| LLM | **OpenAI** `gpt-4o-mini` *or* **Groq** `llama-3.3-70b-versatile` (switch with `LLM_PROVIDER`) | Intent detection, tool selection, final answer |
+| Function calling | **OpenAI-style tool calling** (`tools`, `tool_calls`, `role: tool`), identical on both providers | Lets the model request a Python function |
 | Weather data | **Open-Meteo** (no key) | Geocoding + current conditions |
 | Stock data | **Yahoo Finance** chart endpoint (no key) | Latest available price |
 | HTTP | **Requests** | Calls the data APIs with timeouts |
 | Config | **python-dotenv** | Loads `.env` |
-| Tests | **pytest** | 12 offline tests |
+| Tests | **pytest** | 14 offline tests |
 
 ## 🏗️ Architecture
 
@@ -79,7 +81,7 @@ Create a chatbot that can **check the weather or calculate stock prices by routi
 flowchart TD
     U["👤 User message"] --> V{"Valid input?<br/>not empty, ≤ 2000 chars"}
     V -- "NO" --> E["⚠️ Friendly error<br/>(LLM never called)"]
-    V -- "YES" --> L1["🧠 LLM on Groq<br/>message + tool schemas"]
+    V -- "YES" --> L1["🧠 LLM (OpenAI or Groq)<br/>message + tool schemas"]
     L1 --> D{"Tool needed?"}
     D -- "NO" --> ANS["✅ Direct answer"]
     D -- "YES" --> TC["tool_calls:<br/>name + JSON arguments"]
@@ -103,7 +105,7 @@ ai-agent-tools/
 ├── .streamlit/
 │   └── config.toml       # Dark theme
 ├── tests/
-│   └── test_agent.py     # 12 offline tests
+│   └── test_agent.py     # 14 offline tests
 ├── streamlit_app.py      # Web UI
 ├── cli.py                # Terminal chat
 ├── requirements.txt      # Python dependencies
@@ -120,7 +122,7 @@ ai-agent-tools/
 | 1 | **Receive** | User types a message | Streamlit `chat_input` / `POST /chat` |
 | 2 | **Validate** | Reject empty or overlong input before any API call | `run_agent_traced()` |
 | 3 | **Prompt** | System prompt + user message + tool schemas sent to the LLM | `client.chat.completions.create` |
-| 4 | **Decide** | Model returns plain text, or `tool_calls` | Groq Llama 3.3 |
+| 4 | **Decide** | Model returns plain text, or `tool_calls` | OpenAI or Groq (`LLM_PROVIDER`) |
 | 5 | **Parse** | Tool arguments decoded from JSON | `json.loads` |
 | 6 | **Execute** | The named Python function runs | `execute_tool()` |
 | 7 | **Return** | Result appended as a `role: tool` message with the same `tool_call_id` | Message list |
@@ -210,11 +212,12 @@ Layer 3│ Strict system prompt   │  "If a tool returns an error, explain it
 |---|---|
 | Empty / whitespace message | ⚠️ `Please enter a question.` (no API call) |
 | Overlong message (over 2000 chars) | ⚠️ Asks the user to shorten it |
-| Missing `GROQ_API_KEY` | ❌ Tells the user to add it to `.env` |
-| Wrong / invalid Groq key | ❌ `Groq authentication failed. Please check your GROQ_API_KEY.` |
-| Groq rate limit | ❌ Friendly "rate-limited, try again" message |
-| Groq timeout / connection / HTTP error | ❌ Specific friendly message for each |
-| Invalid or retired model name | ❌ Tells the user to set `GROQ_MODEL` |
+| Missing API key | ❌ Names the exact key to add for the active provider |
+| Wrong / invalid key | ❌ `... authentication failed. Please check your <KEY>.` |
+| **OpenAI out of credits (`insufficient_quota`)** | 💳 Explains it is billing and shows the fix (add credits or `LLM_PROVIDER=groq`) |
+| Normal rate limit | ❌ Friendly "rate-limited, try again" message |
+| LLM timeout / connection / HTTP error | ❌ Specific friendly message for each |
+| Invalid or retired model name | ❌ Tells the user to set `GROQ_MODEL` / `OPENAI_MODEL` |
 | Malformed tool call from the model | 🔁 Automatic retry once, then a clear error |
 | Unknown tool requested by the model | 🚫 `Unknown tool: ...` returned to the model |
 | Bad / missing tool arguments | 🚫 Structured error, no crash |
@@ -230,7 +233,7 @@ Layer 3│ Strict system prompt   │  "If a tool returns an error, explain it
 
 > ℹ️ The API returns **HTTP 200** even for these friendly errors, on purpose. The error text is in the `response` field.
 
-## 🔄 Why Groq and Not OpenAI
+## 🔧 Problem Solved: OpenAI Quota Error
 
 The assignment lists **OpenAI Function Calling**, so the project was first built on the OpenAI API. The first real call failed:
 
@@ -241,32 +244,69 @@ https://platform.openai.com/settings/organization/billing/.',
 'type': 'insufficient_quota', 'param': None, 'code': 'credit_balance_exhausted'}}
 ```
 
+### 🔍 Root cause
+
 | Question | Answer |
 |---|---|
 | Is it a bug in the code? | ❌ No. The request was valid and reached OpenAI |
 | Is it a normal rate limit? | ❌ No. It uses HTTP 429, but it is a **billing** error (`insufficient_quota`) |
 | Why did it happen? | The OpenAI API is **pay-as-you-go** and the account had **no credits** |
-| Will retrying help? | ❌ No. It fails until paid credits are added |
+| Will retrying help? | ❌ No. It fails until credits are added or another provider is used |
 
-**Why Groq:**
+### 🧭 How to solve it (two options)
+
+```mermaid
+flowchart TD
+    P["❌ 429 insufficient_quota<br/>OpenAI has no credits"] --> Q{"Do you want to<br/>pay for OpenAI?"}
+    Q -- "YES" --> A["💳 Option A: add credits<br/>platform.openai.com → Billing"]
+    Q -- "NO" --> B["🆓 Option B: use Groq free tier<br/>console.groq.com/keys"]
+    A --> A2["LLM_PROVIDER=openai<br/>OPENAI_API_KEY=sk-..."]
+    B --> B2["LLM_PROVIDER=groq<br/>GROQ_API_KEY=gsk_..."]
+    A2 --> R["🔁 Restart the app"]
+    B2 --> R
+    R --> OK["✅ Same agent, same tools, same answers"]
+```
+
+| | 💳 Option A: OpenAI | 🆓 Option B: Groq (default) |
+|---|---|---|
+| **Fix** | Add billing credits to your OpenAI account | Create a free Groq key |
+| **`.env`** | `LLM_PROVIDER=openai`<br/>`OPENAI_API_KEY=sk-...` | `LLM_PROVIDER=groq`<br/>`GROQ_API_KEY=gsk_...` |
+| **Default model** | `gpt-4o-mini` | `llama-3.3-70b-versatile` |
+| **Cost** | Paid per use | Free tier (rate-limited) |
+| **Code changes** | ✅ None | ✅ None |
+
+**Step by step**
+
+1. Open `.env` and set `LLM_PROVIDER` to `openai` or `groq`.
+2. Add the matching key (`OPENAI_API_KEY` or `GROQ_API_KEY`).
+3. **Restart** the app, because `.env` is only read at startup.
+4. Confirm the provider in the Streamlit sidebar. It shows `Provider: OpenAI · Model: gpt-4o-mini` or the Groq equivalent.
+
+**Quick key test (OpenAI example):**
+
+```bash
+python -c "import os; from dotenv import load_dotenv; load_dotenv(); from openai import OpenAI; r=OpenAI(api_key=os.getenv('OPENAI_API_KEY')).chat.completions.create(model='gpt-4o-mini', messages=[{'role':'user','content':'Say hello'}]); print(r.choices[0].message.content)"
+```
+
+### 🛡️ The app now handles this error gracefully
+
+Instead of crashing, an out-of-credits OpenAI account shows a friendly message with the fix:
+
+> *OpenAI reports no credits left (insufficient_quota). Add billing credits, or switch to the free option: set LLM_PROVIDER=groq and add GROQ_API_KEY in .env.*
+
+This behaviour is covered by an automated test.
+
+### 🎯 Why Groq is the default
 
 | Reason | Why it matters |
 |---|---|
 | 🆓 **Free tier** | The project runs without paying |
 | ♻️ **Reproducible** | Anyone who clones the repo can run it with a free key |
-| 🔁 **Same function-calling pattern** | Uses `tools` / `tool_calls` / `role: tool`, so the skill transfers directly |
+| 🔁 **Same function-calling pattern** | Uses `tools` / `tool_calls` / `role: tool`, so the skill transfers directly to OpenAI |
 | ⚡ **Fast** | Low latency makes the chat feel instant |
-| 🔀 **Swappable** | Only the client and exception classes are provider-specific |
+| 🔀 **Swappable** | One line in `.env` changes the provider |
 
-**Honest trade-offs:** the Groq free tier has rate limits (handled with a friendly message), and Llama occasionally emits a malformed tool call (the agent retries once).
-
-**Want OpenAI back?** Install `openai`, then swap the client. The loop, schemas and `tools.py` stay unchanged:
-
-```python
-from openai import OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")  # any model your account can use
-```
+**Honest trade-offs:** the Groq free tier has rate limits (handled with a friendly message), and Llama occasionally emits a malformed tool call (the agent retries once). OpenAI models are generally very reliable at tool calling but need paid credits.
 
 ## 🔐 Environment Variables
 
@@ -274,19 +314,28 @@ Create a `.env` file in the project root (a template is provided in `.env.exampl
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `GROQ_API_KEY` | ✅ | n/a | Free key from [console.groq.com/keys](https://console.groq.com/keys) |
+| `LLM_PROVIDER` | ❌ | auto (Groq if its key exists, else OpenAI) | `groq` or `openai` |
+| `GROQ_API_KEY` | ✅ if `groq` | n/a | Free key from [console.groq.com/keys](https://console.groq.com/keys) |
 | `GROQ_MODEL` | ❌ | `llama-3.3-70b-versatile` | Any Groq model that supports tool calling |
+| `OPENAI_API_KEY` | ✅ if `openai` | n/a | Key from [platform.openai.com](https://platform.openai.com/api-keys) (needs billing credits) |
+| `OPENAI_MODEL` | ❌ | `gpt-4o-mini` | Any OpenAI model your account can use |
 | `BOT_NAME` | ❌ | `Robo` | Chatbot's name in the UI and chat |
 | `STOCK_USE_DEMO` | ❌ | `false` | `true` = clearly-labelled **demo** prices for offline testing |
 
 ```env
+# Free option (default)
+LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_your_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
+
+# Paid option (needs OpenAI credits)
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=sk-your_key_here
+
 BOT_NAME=Robo
 STOCK_USE_DEMO=false
 ```
 
-> ℹ️ The weather and stock tools need **no API keys**. Model names change over time; if one is retired, set `GROQ_MODEL` to a current one.
+> ℹ️ You only need the key for the provider you choose. The weather and stock tools need **no API keys**. Model names change over time; if one is retired, set `GROQ_MODEL` or `OPENAI_MODEL` to a current one.
 
 > ⚠️ **Never commit `.env`.** It's already listed in `.gitignore`. Only `.env.example` belongs in the repo. `.env` is read at startup, so restart the app after editing it.
 
@@ -306,7 +355,7 @@ pip install -r requirements.txt
 
 # 4. Configure environment variables
 cp .env.example .env               # Windows: copy .env.example .env
-# then open .env and paste your real GROQ_API_KEY
+# then open .env, choose LLM_PROVIDER and paste the matching API key
 ```
 
 ## 🚀 How to Run
@@ -348,7 +397,7 @@ curl -X POST http://127.0.0.1:8000/chat \
 
 ```bash
 python cli.py
-python -m pytest -q        # 12 offline tests, no keys needed
+python -m pytest -q        # 14 offline tests, no keys needed
 ```
 
 ## 🧪 Example
@@ -386,11 +435,11 @@ Sample tool result passed back to the model (illustrative values):
 - **Weather is current conditions only.** No forecasts or history.
 - **Single-turn Q&A.** There is no conversation memory, so follow-ups must be self-contained.
 - **The model picks the ticker.** Ambiguous company names (or companies listed on several exchanges) may map to the wrong symbol.
-- **Free-tier limits.** Groq's free tier is rate-limited, so heavy use may need a paid plan.
+- **Provider limits.** Groq's free tier is rate-limited, and OpenAI needs paid credits.
 - **Llama tool calls can occasionally be malformed.** The agent retries once, but a rare failure can still surface as an error message.
 - **Only three tools.** New abilities need a new function, a schema entry and a registry line.
 - **No authentication on the API.** Add auth before exposing `/chat` publicly.
-- Requires internet access and a Groq API key.
+- Requires internet access and an API key for one provider (Groq or OpenAI).
 
 ## 🎤 Interview Cheat Sheet
 
@@ -421,13 +470,13 @@ Three layers. Live data comes from real tools, not model memory. Tools return st
 <details>
 <summary><b>How do you handle API rate limits and failures?</b></summary>
 
-Both layers handle them. Each tool returns a structured error on timeout, HTTP 429, or no connection, which the model explains to the user. The Groq client has its own handlers for rate limits, timeouts, bad keys and connection errors. The agent never shows a stack trace.
+Both layers handle them. Each tool returns a structured error on timeout, HTTP 429, or no connection, which the model explains to the user. The LLM client has its own handlers for rate limits, out-of-credits errors, timeouts, bad keys and connection errors. The agent never shows a stack trace.
 </details>
 
 <details>
-<summary><b>Why Groq and not OpenAI?</b></summary>
+<summary><b>You used OpenAI first. What went wrong and how did you fix it?</b></summary>
 
-My OpenAI account returned `429 insufficient_quota` because it had no billing credits. That is a billing error, not a code bug. Groq has a free tier and uses the same function-calling format, so the architecture is identical and anyone can run the project for free. Switching providers only changes the client and exception classes.
+The first call returned `429 insufficient_quota`. That is a billing error, not a code bug and not a normal rate limit: the pay-as-you-go account had no credits. I fixed it two ways. I made the agent provider-agnostic, so one line (`LLM_PROVIDER`) switches between OpenAI and Groq, which uses the same tool-calling format and has a free tier. I also added a specific error handler, so an out-of-credits account now shows a clear message with the fix instead of a stack trace, and a unit test covers it.
 </details>
 
 <details>
@@ -446,6 +495,6 @@ I built on the raw API so I could show I understand the mechanism: schemas, the 
 
 <div align="center">
 
-Built for **Task 2: AI Agent with Tools** · Python · Groq · FastAPI · Streamlit
+Built for **Task 2: AI Agent with Tools** · Python · OpenAI / Groq · FastAPI · Streamlit
 
 </div>
