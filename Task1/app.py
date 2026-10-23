@@ -53,7 +53,7 @@ MAX_QUESTION_CHARS = 1000
 MAX_RETRIES = 4
 BASE_DELAY_SECONDS = 1.5
 
-GROQ_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 GROQ_KEY_NAME = "GROQ_API_KEY"
 EMBEDDING_LABEL = "all-MiniLM-L6-v2 (local)"
 
