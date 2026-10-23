@@ -20,7 +20,7 @@ from .tools import execute_tool
 
 load_dotenv()
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 BOT_NAME = os.getenv("BOT_NAME", "Robo")
 MAX_TOOL_ROUNDS = 5
 MAX_INPUT_CHARS = 2000
